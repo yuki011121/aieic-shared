@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aieic-shared"
+version = "0.1.0"
+description = "Shared schemas, clients, and mocks for the AIEIC Lab Multi-Agent System"
+authors = [
+    {name = "AIEIC Lab Team", email = "aieic@calpoly.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pydantic>=2.0",
+    "httpx>=0.25",
+]
+
+[project.optional-dependencies]
+mocks = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "python-multipart>=0.0.9",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/aieic-shared"
+Documentation = "https://github.com/your-org/aieic-shared/blob/main/README.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aieic_shared*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
