@@ -85,8 +85,11 @@ def _make_mock_material(req: GenerateCurriculumRequest) -> CurriculumMaterial:
             code_weight=0.6,
             report_weight=0.3,
             manual_weight=0.1,
-            guidance="Focus on correctness, then style.",
         ),
+        learning_objectives=req.learning_objectives,
+        difficulty=req.difficulty,
+        estimated_duration_min=req.estimated_duration_min,
+        version=1,
         approval_status="pending",
         generated_at=now,
         last_updated=now,
@@ -138,7 +141,7 @@ def create_app() -> FastAPI:
         if lab_id not in _STORE:
             raise HTTPException(404, f"Lab '{lab_id}' not found")
         material = _STORE[lab_id]
-        material.approval_status = "changes_requested"
+        material.approval_status = "needs_changes"
         material.last_updated = datetime.now(timezone.utc)
         return material
 

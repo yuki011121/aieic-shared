@@ -1,10 +1,14 @@
 """
-Curriculum Designer schemas.
+Curriculum Designer schemas — wire-format types only.
 
-The Curriculum Designer generates lab materials (specs, quizzes, rubrics) from
-learning objectives and supports the instructor approval workflow.
+These are the request/response shapes that flow between the Curriculum Designer
+and the Orchestrator (or any other caller). They define the API contract.
 
-Owner: Yayun (not yet implemented — contract defined here for forward planning)
+The Curriculum Designer's internal model (LabMaterial) may contain additional
+fields (e.g. material_content, agent_instructions, feedback_history). Those
+internal fields are stripped at the router boundary and never appear here.
+
+Owner: Yayun
 """
 
 from __future__ import annotations
@@ -55,10 +59,6 @@ class Rubric(BaseModel):
     report_weight: float = Field(default=0.3, ge=0, le=1)
     manual_weight: float = Field(default=0.1, ge=0, le=1)
     criteria: list[RubricCriterion] = Field(default_factory=list)
-    guidance: str = Field(
-        default="",
-        description="Free-form guidance for the Assessment Agent's grader",
-    )
 
 
 # ============================================================================
@@ -81,15 +81,33 @@ class GenerateCurriculumRequest(BaseModel):
 # ============================================================================
 
 class CurriculumMaterial(BaseModel):
-    """The complete lab package."""
+    """
+    Wire-format response for every /curriculum/* endpoint.
+
+    This is what the Orchestrator (and any other caller) receives.
+    Internal Curriculum Designer fields (material_content, agent_instructions,
+    feedback_history) are intentionally excluded — they are implementation
+    details and may be large.
+    """
     lab_id: str
     course_id: str = "csc580"
     title: str
     spec_markdown: str = Field(..., description="Full lab spec in Markdown")
     quiz: list[QuizQuestion] = Field(default_factory=list)
     rubric: Rubric = Field(default_factory=Rubric)
-    approval_status: Literal["pending", "approved", "changes_requested"] = "pending"
+
+    # Objective metadata (present in generate request; echoed back in response)
+    learning_objectives: list[str] = Field(default_factory=list)
+    difficulty: Literal["basic", "intermediate", "challenge"] = "intermediate"
+    estimated_duration_min: int = Field(default=90, ge=10, le=300)
+
+    # Approval workflow
+    approval_status: Literal["pending", "approved", "needs_changes"] = "pending"
     approved_by: Optional[str] = None
+
+    # Versioning — bumped on every request-changes regeneration
+    version: int = Field(default=1, ge=1)
+
     generated_at: datetime
     last_updated: datetime
 

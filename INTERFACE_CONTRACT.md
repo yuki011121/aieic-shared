@@ -720,6 +720,8 @@ Out of scope for v0.1. Logic currently lives inside Assessment Agent (`assessmen
 
 This maps every interaction in the Figma "AIEIC Instructor Panel — Unified Dashboard v2" to its Orchestrator endpoint. Frontend developers should reference this when wiring up the React app.
 
+> **Note:** Endpoints use `lab4` as the example `lab_id` throughout. In the React app, this is a dynamic route parameter.
+
 ### Sidebar (always visible)
 
 | UI element | Orchestrator endpoint |
@@ -867,6 +869,28 @@ This maps every interaction in the Figma "AIEIC Instructor Panel — Unified Das
 ### Versioning
 This document is versioned. Breaking changes bump the **major** version (v0.1 → v1.0). Additive changes (new optional fields, new endpoints) bump **minor** (v0.1 → v0.2).
 
+### When does a change require updating this doc + `aieic-shared`?
+
+**Yes — coordinate and update shared when:**
+- Adding or removing a **required** field on any request or response
+- Changing a field's type or name
+- Adding or removing an endpoint
+- Changing an enum value (e.g. an `approval_status` string)
+- Changing HTTP method or URL path
+
+**No — do NOT update shared for:**
+- Changes to an agent's **internal** data model (your own DB schema, extra computed fields, internal state)
+- Adding an **optional** field to a response — callers ignore unknown fields by default; just add it
+- Any change that stays entirely within one agent's repo and doesn't affect what the Orchestrator or other agents receive
+- Refactoring, renaming internal variables, changing how you store data
+
+
+### Do individual agents need to import from `aieic-shared`?
+
+No — not for internal models. Each agent owns its internal representation and can evolve it freely. The only obligation is that the agent's **HTTP responses** match the shapes defined in this document.
+
+`aieic-shared` is primarily the **Orchestrator's dependency**. Individual agents may optionally import core enums (`LabPhase`, `StudentStatus`, etc.) to avoid redefining them, but are never required to use the response schema classes internally.
+
 ### Process for Changes
 Any agent owner who needs to change a contract:
 
@@ -877,17 +901,6 @@ Any agent owner who needs to change a contract:
 5. **Bump version**.
 6. **Notify**: post in team channel.
 
-### What "breaking" means
-- Removing a field
-- Changing a field's type
-- Changing required fields
-- Changing endpoint path or method
-- Changing response status code semantics
-
-### What's NOT breaking
-- Adding optional fields
-- Adding new endpoints
-- Documentation clarifications
 
 ---
 
@@ -905,7 +918,6 @@ Any agent owner who needs to change a contract:
 
 ### Immediate Blockers
 1. **Lab Companion HTTP API** — without this, the Orchestrator cannot route student messages. **This is the #1 blocker for system integration.** 
-2. **Decision: do we keep all agents in one shared Azure subscription with RBAC, or per-developer subscriptions?** Affects how URLs / credentials get configured.
 
 ---
 
