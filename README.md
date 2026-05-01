@@ -2,59 +2,46 @@
 
 Shared schemas, HTTP clients, and mock servers for the AIEIC Lab Multi-Agent System.
 
-## What this package is (and isn't)
-
-**This package is the Orchestrator's SDK and the team's integration toolkit.**
-
-It contains three things:
-- **Wire-format schemas** — the request/response shapes that flow *between* agents over HTTP. These define what the Orchestrator sends and expects to receive.
-- **Typed HTTP clients** — used by the Orchestrator to call each agent. Validates requests/responses at every call site.
-- **Mock servers** — stand-in FastAPI apps that let any developer build against the full system before every agent is ready.
-
-**What it is not:** a library that individual agents must use internally. Each agent owns its own internal data models and can evolve them freely. The only requirement is that an agent's *API responses* conform to the shapes defined here.
+- **Wire-format schemas** — request/response shapes that flow between agents over HTTP
+- **Typed HTTP clients** — used by the Orchestrator; validates requests/responses at every call site
+- **Mock servers** — stand-in FastAPI apps for parallel development before all agents are ready
 
 ---
 
-## Who should import what
+## Import guide
 
 | Role | What to import |
 |---|---|
 | **Orchestrator** | Everything — schemas, clients, orchestrator schemas |
-| **Individual agent (e.g. Curriculum Designer)** | Only `core.py` enums if useful (`LabPhase`, `StudentStatus`, etc.). Not required to import response schemas internally. |
+| **Individual agent** | Only `core.py` enums if useful (`LabPhase`, `StudentStatus`, etc.) |
 | **Test / integration code** | Schemas (for assertions) and mock servers |
 
-The key rule: **if only one agent uses a type, it belongs in that agent's repo.** If a type must be agreed upon by both sides of an HTTP call, it belongs here.
+If a type is used by only one agent, it belongs in that agent's repo. If both sides of an HTTP call must agree on it, it belongs here.
 
 ---
 
-## When to update this package
+## Update policy
 
-**You must update shared when:**
-- Adding or removing a required field from an API request or response
-- Changing a field's type or name
-- Adding or removing an endpoint (update the client + mock too)
-- Changing an enum value (this is a breaking change — see versioning below)
+Update for any change to the HTTP interface between agents:
+- Adding, removing, or renaming a field in a request or response
+- Changing a field's type
+- Adding or removing an endpoint (update the client and mock too)
+- Changing an enum value (breaking — see versioning)
 
-**You do NOT need to update shared when:**
-- Adding fields to your agent's internal model
-- Changing your agent's internal logic, DB schema, or implementation details
-- Adding an optional field to your API response (callers will just ignore it)
-- Any change that stays entirely within your agent's repo
-
-If in doubt: ask yourself "does the Orchestrator need to know about this change?" If no, don't touch shared.
+Do **not** update for internal-only changes: agent logic, DB schema, internal models, or additive optional response fields.
 
 ---
 
 ## Installation
 
 ```bash
-# Local development — install in editable mode
+# Local development
 pip install -e /path/to/aieic-shared
 
-# In CI/CD
+# CI/CD
 pip install git+https://github.com/<your-org>/aieic-shared.git@v0.1.0
 
-# With mock server support (needed to run mock agents)
+# With mock server support
 pip install -e ".[mocks]"
 ```
 
@@ -62,15 +49,10 @@ pip install -e ".[mocks]"
 
 ## Usage
 
-### Orchestrator: using HTTP clients
+### Orchestrator: HTTP clients
 
 ```python
-from aieic_shared.clients import (
-    ParticipantClient,
-    LabCompanionClient,
-    AssessmentClient,
-    CurriculumClient,
-)
+from aieic_shared.clients import ParticipantClient, LabCompanionClient
 
 participant = ParticipantClient(base_url="http://participant:8001")
 companion   = LabCompanionClient(base_url="http://companion:8002")
@@ -87,61 +69,38 @@ reply = await companion.chat(
 )
 ```
 
-### Individual agent: importing core enums (optional)
-
-If you want to use the shared enums instead of redefining them, you can:
+### Individual agents: core enums
 
 ```python
 from aieic_shared.schemas.core import LabPhase, StudentStatus
-
-# Use in your own internal model
-class MyInternalState(BaseModel):
-    phase: LabPhase
-    status: StudentStatus
 ```
 
-You are **not** required to use `CurriculumMaterial`, `AssessmentResult`, etc. internally. Define your own richer model and convert to the wire format at the router level:
+Define your own internal model and convert to the wire format at the router level — do not use `CurriculumMaterial`, `AssessmentResult`, etc. internally:
 
 ```python
-# Your internal model — evolve freely
+# Internal model — evolve freely
 class LabMaterial(BaseModel):
     lab_id: str
     spec_markdown: str
     feedback_history: list[FeedbackEntry]  # internal only
-    material_content: str | None           # internal only
-    ...
 
-# Router — strip internal fields before responding
+# Strip internal fields at the router boundary
 @router.get("/{lab_id}", response_model=LabMaterial,
-            response_model_exclude={"feedback_history", "material_content"})
+            response_model_exclude={"feedback_history"})
 async def get_lab(lab_id: str) -> LabMaterial:
     return store.get(lab_id)
 ```
 
-### Running mock servers for parallel development
-
-Lets you develop against the full system without waiting for other agents.
+### Mock servers
 
 ```bash
-# Terminal 1 — mock Lab Companion
-python -m aieic_shared.mocks.lab_companion --port 8002
-
-# Terminal 2 — mock Curriculum Designer
+# Run individual mocks
+python -m aieic_shared.mocks.lab_companion      --port 8002
 python -m aieic_shared.mocks.curriculum_designer --port 8003
+python -m aieic_shared.mocks.participant         --port 8001
+python -m aieic_shared.mocks.assessment          --port 8004
 
-# Terminal 3 — mock Participant Agent
-python -m aieic_shared.mocks.participant --port 8001
-
-# Terminal 4 — mock Assessment Agent
-python -m aieic_shared.mocks.assessment --port 8004
-
-# Terminal 5 — your real agent or Orchestrator
-uvicorn main:app --port 8000
-```
-
-Or run all mocks at once:
-
-```bash
+# Or run all at once
 python -m aieic_shared.mocks.run_all
 ```
 
@@ -172,15 +131,15 @@ aieic_shared/
     └── run_all.py
 ```
 
-The authoritative interface specification lives in [`INTERFACE_CONTRACT.md`](./INTERFACE_CONTRACT.md). The Python code here is the *implementation* of that contract — if they ever disagree, the contract doc wins.
+The authoritative interface specification is [`INTERFACE_CONTRACT.md`](./INTERFACE_CONTRACT.md). If the Python code and the contract doc ever disagree, the contract wins.
 
 ---
 
 ## Versioning
 
-This package follows the same versioning as `INTERFACE_CONTRACT.md`.
+Versioned in sync with `INTERFACE_CONTRACT.md`.
 
-- **Breaking change** (bump major: `v0.x` → `v1.0`): removing a field, changing a type, renaming an endpoint, changing an enum value.
-- **Additive change** (bump minor: `v0.1` → `v0.2`): adding optional fields, adding new endpoints, documentation updates.
+- **Breaking** (bump major: `v0.x` → `v1.0`): removing a field, changing a type, renaming an endpoint, changing an enum value
+- **Additive** (bump minor: `v0.1` → `v0.2`): new optional fields, new endpoints, documentation updates
 
-For breaking changes, coordinate with all affected agent owners before merging. See the [change process](./INTERFACE_CONTRACT.md#versioning--change-process) in the contract doc.
+For breaking changes, coordinate with all affected agent owners before merging. See the [change process](./INTERFACE_CONTRACT.md#versioning--change-process).
