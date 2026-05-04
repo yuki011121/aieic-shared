@@ -21,6 +21,7 @@ import uvicorn
 
 from aieic_shared.mocks.assessment import app as assessment_app
 from aieic_shared.mocks.curriculum_designer import app as curriculum_app
+from aieic_shared.mocks.integrity import app as integrity_app
 from aieic_shared.mocks.lab_companion import app as companion_app
 from aieic_shared.mocks.participant import app as participant_app
 
@@ -36,6 +37,7 @@ def main() -> None:
     parser.add_argument("--no-participant", action="store_true")
     parser.add_argument("--no-curriculum", action="store_true")
     parser.add_argument("--no-assessment", action="store_true")
+    parser.add_argument("--no-integrity", action="store_true")
     args = parser.parse_args()
 
     services = []
@@ -47,6 +49,8 @@ def main() -> None:
         services.append(("aieic_shared.mocks.curriculum_designer:app", 8003, "curriculum"))
     if not args.no_assessment:
         services.append(("aieic_shared.mocks.assessment:app", 8004, "assessment"))
+    if not args.no_integrity:
+        services.append(("aieic_shared.mocks.integrity:app", 8005, "integrity"))
 
     if not services:
         print("Nothing to run.")

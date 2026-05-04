@@ -198,7 +198,7 @@ See `aieic_shared/` for full type definitions.
 ##### `POST /orchestrator/student/message`
 Student sends a message to the Lab Companion. Orchestrator coordinates:
 1. Get/refresh student context from Participant Agent (learning behavior profile)
-2. Check with Integrity Agent — if blocked, return refusal immediately
+2. Check with Integrity Agent (`POST /validate`) — if `session_escalated`, return refusal immediately
 3. Forward to Lab Companion with context + guidance_level injected
 4. Log interaction back to Participant Agent (fire-and-forget)
 5. Return AI reply
@@ -709,7 +709,7 @@ List flagged anomaly reports.
 
 ### Integrity Agent
 
-**Role:** Real-time academic integrity enforcement. Classifies every student question before the Lab Companion responds, determines the permitted guidance level, and logs violations. Escalates to the instructor when violation thresholds are exceeded.
+**Role:** Real-time academic integrity enforcement. Classifies every student question before the Lab Companion responds, detects violations (direct solution requests, answer farming, frequency limit), and logs session-level integrity data. Escalates sessions to the instructor when `violation_count ≥ 3`.
 
 **Key distinctions from Participant Agent:**
 
@@ -717,80 +717,135 @@ List flagged anomaly reports.
 |---|---|---|
 | Called | **Synchronously** — blocks response | **Asynchronously** — fire-and-forget after response |
 | Classification purpose | Policy compliance (is this question permitted?) | Learning analytics (what kind of help does the student need?) |
-| Classification taxonomy | conceptual / clarification / procedural / answer_farming / direct_solution_request | debugging / concept / setup |
+| Classification taxonomy | CONCEPTUAL / PROCEDURAL / CLARIFICATION / DIRECT_SOLUTION / ANSWER_FARMING | debugging / concept / setup |
 | Output used for | Gating Lab Companion response | Personalizing Lab Companion response |
+
+**Authentication:** All endpoints except `GET /health` require the header `X-Internal-Token: <INTERNAL_API_TOKEN>`.
 
 #### Endpoints
 
-##### `POST /integrity/check`
-Synchronous policy gate. Called by the Orchestrator **after** loading student context and **before** forwarding the message to the Lab Companion.
+##### `POST /session/start`
+Initialize a new session's integrity tracking. Called by Orchestrator when creating a new student session.
 
 **Request:**
 ```json
 {
   "student_id": "alex_m",
   "session_id": "uuid",
-  "message": "What is the answer to question 3?"
+  "lab_id": "lab4",
+  "course_id": "CSC580"
 }
 ```
-
-**Response:**
-```json
-{
-  "blocked": false,
-  "guidance_level": "FULL",
-  "question_type": "conceptual",
-  "violation": false,
-  "warning_message": null
-}
-```
-
-**`guidance_level` values:**
-
-| Value | Meaning |
-|---|---|
-| `FULL` | Unrestricted guidance — normal Lab Companion response |
-| `MODERATE` | Hints only — Lab Companion should not give direct answers |
-| `MINIMAL` | Confirm approach only — no implementation details |
-| `REJECTED` | Blocked — Orchestrator returns refusal, Lab Companion not called |
-
-**Orchestrator behavior on response:**
-- `blocked: true` → skip Lab Companion, return `"You've reached the AI assistance limit for this period."`
-- Otherwise → pass `guidance_level` to Lab Companion via `student_context_summary`
-
-**Violation escalation thresholds (enforced internally by Integrity Agent):**
-- Q13: warning message returned in `warning_message`
-- Q16+: `blocked: true` (hard block)
-- 3+ violations in a session: `escalated: true` in session report
-
-##### `GET /integrity/report/{session_id}`
-Returns the full integrity report for a session. Called by the Orchestrator when populating the instructor dashboard's flagged entries.
 
 **Response:**
 ```json
 {
   "session_id": "uuid",
-  "student_id": "alex_m",
-  "total_questions": 18,
-  "violations": [
-    {
-      "question_number": 13,
-      "question_type": "direct_solution_request",
-      "message": "...",
-      "guidance_level": "REJECTED",
-      "timestamp": "2026-04-30T..."
-    }
-  ],
-  "violation_count": 3,
-  "escalated": true,
-  "final_status": "flagged"
+  "started_at": "2026-04-30T14:00:00Z",
+  "message": "Session initialized."
 }
 ```
 
-##### Health
-- `GET /health`
+##### `POST /validate`
+Synchronous policy gate. Called by Orchestrator **after** loading student context and **before** forwarding the message to the Lab Companion.
 
-> **Note:** Port `:8005` and exact request/response schema must be confirmed with the Integrity Agent owner before integration. The Orchestrator's `policy_check` node is already scaffolded to call this endpoint.
+**Request:**
+```json
+{
+  "student_id": "alex_m",
+  "session_id": "uuid",
+  "lab_id": "lab4",
+  "course_id": "CSC580",
+  "question_text": "What is the answer to question 3?",
+  "conversation_history": [
+    {"role": "user", "content": "..."},
+    {"role": "assistant", "content": "..."}
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "classification": "CONCEPTUAL",
+  "violation_detected": false,
+  "violation_type": null,
+  "violation_count": 0,
+  "question_count": 5,
+  "session_escalated": false
+}
+```
+
+**`classification` values:**
+
+| Value | Guidance implication |
+|---|---|
+| `CONCEPTUAL` | Full guidance permitted |
+| `CLARIFICATION` | Full guidance permitted |
+| `PROCEDURAL` | Moderate guidance — hints only |
+| `DIRECT_SOLUTION` | Violation — skip Lab Companion or return minimal response |
+| `ANSWER_FARMING` | Violation — skip Lab Companion or return minimal response |
+
+**`violation_type` values:** `DIRECT_SOLUTION_REQUEST`, `ANSWER_FARMING`, `FREQ_LIMIT_EXCEEDED`
+
+**Orchestrator behavior on response:**
+- `session_escalated: true` → skip Lab Companion, return `"You've reached the AI assistance limit for this period."`
+- `violation_detected: true` → pass `classification` to Lab Companion via `student_context_summary` as a constraint
+- Otherwise → pass message to Lab Companion normally
+
+**Rate limit:** 60 requests per minute per `student_id`.
+
+##### `POST /session/end`
+Called by Orchestrator on student logout or session timeout.
+
+**Request:** `{ "student_id": "alex_m", "session_id": "uuid" }`
+
+**Response:** `{ "session_id": "uuid", "report_id": "uuid", "ended_at": "...", "summary": {...} }`
+
+##### `GET /analytics/lab/{lab_id}`
+Per-lab integrity analytics for the instructor dashboard. Called by Orchestrator when building the Stats and Activity tabs.
+
+**Query params:** `course_id` (optional, default `"CSC580"`)
+
+**Response:**
+```json
+{
+  "lab_id": "lab4",
+  "course_id": "CSC580",
+  "session_stats": {"total_sessions": 35, "active_sessions": 20, "closed_sessions": 15},
+  "question_stats": {
+    "total_questions": 412,
+    "avg_questions_per_student": 11.8,
+    "direct_solution_attempts": 12,
+    "answer_farming_attempts": 4,
+    "escalated_session_count": 3
+  },
+  "classification_distribution": {"CONCEPTUAL": 210, "PROCEDURAL": 145, "CLARIFICATION": 41, "DIRECT_SOLUTION": 12, "ANSWER_FARMING": 4},
+  "per_student": [
+    {
+      "student_id": "alex_m",
+      "question_count": 12,
+      "violation_count": 0,
+      "status": "ON_TRACK",
+      "classification_breakdown": {"CONCEPTUAL": 7, "PROCEDURAL": 5}
+    }
+  ]
+}
+```
+
+**`per_student[].status` values:** `"ON_TRACK"` / `"FLAGGED"` / `"NEEDS_HELP"`
+
+This endpoint feeds both the Student Activity tab (per-student integrity status) and the Statistics tab (class-level violation breakdown).
+
+##### `GET /report/{report_id}`
+Retrieve a specific integrity report. Called by Orchestrator when an instructor clicks a flagged student.
+
+**Query params:** `student_id`
+
+##### Health
+- `GET /health` → `{"status": "ok", "timestamp": "..."}`
+
+> **Note:** Port `:8005` must be confirmed with the Integrity Agent owner.
 
 ---
 
@@ -891,10 +946,10 @@ This maps every interaction in the Figma "AIEIC Instructor Panel — Unified Das
    a. GET /participant/context/{student_id}
       → returns summary, hint_level pattern (learning analytics)
 
-   b. POST /integrity/check
-      { student_id, session_id, message }
-      → returns blocked, guidance_level, question_type
-      → if blocked: skip step c, return refusal to student
+   b. POST /validate  (Integrity Agent)
+      { student_id, session_id, lab_id, course_id, question_text, conversation_history }
+      → returns classification, violation_detected, session_escalated
+      → if session_escalated: skip step c, return refusal to student
 
    c. POST /companion/chat  (skipped if step b returned blocked: true)
       { student_id, session_id, message,

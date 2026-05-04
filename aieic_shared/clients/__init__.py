@@ -23,6 +23,7 @@ from aieic_shared.clients.companion import LabCompanionClient
 from aieic_shared.clients.participant import ParticipantClient
 from aieic_shared.clients.curriculum import CurriculumClient
 from aieic_shared.clients.assessment import AssessmentClient
+from aieic_shared.clients.integrity import IntegrityClient
 
 __all__ = [
     "AgentClient",
@@ -31,4 +32,5 @@ __all__ = [
     "ParticipantClient",
     "CurriculumClient",
     "AssessmentClient",
+    "IntegrityClient",
 ]

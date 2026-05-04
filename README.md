@@ -52,12 +52,22 @@ pip install -e ".[mocks]"
 ### Orchestrator: HTTP clients
 
 ```python
-from aieic_shared.clients import ParticipantClient, LabCompanionClient
+from aieic_shared.clients import ParticipantClient, LabCompanionClient, IntegrityClient
 
 participant = ParticipantClient(base_url="http://participant:8001")
 companion   = LabCompanionClient(base_url="http://companion:8002")
+integrity   = IntegrityClient(base_url="http://integrity:8005")
 
 context = await participant.get_student_context("alex_m")
+
+# Integrity check must happen before calling Lab Companion
+check = await integrity.check(
+    student_id="alex_m",
+    session_id="...",
+    message="How do I insert at position 3?",
+)
+if check.blocked:
+    return refusal_response()
 
 reply = await companion.chat(
     student_id="alex_m",
@@ -95,10 +105,11 @@ async def get_lab(lab_id: str) -> LabMaterial:
 
 ```bash
 # Run individual mocks
-python -m aieic_shared.mocks.lab_companion      --port 8002
+python -m aieic_shared.mocks.lab_companion       --port 8002
 python -m aieic_shared.mocks.curriculum_designer --port 8003
 python -m aieic_shared.mocks.participant         --port 8001
 python -m aieic_shared.mocks.assessment          --port 8004
+python -m aieic_shared.mocks.integrity           --port 8005
 
 # Or run all at once
 python -m aieic_shared.mocks.run_all
@@ -116,18 +127,21 @@ aieic_shared/
 │   ├── participant.py # LogInteractionRequest, StudentContextResponse
 │   ├── curriculum.py  # CurriculumMaterial, GenerateCurriculumRequest, …
 │   ├── assessment.py  # AssessmentResult, ManualReviewRequest, …
+│   ├── integrity.py   # IntegrityCheckRequest, IntegrityCheckResponse, IntegrityReport, …
 │   └── orchestrator.py# DashboardResponse, OrchestratorSessionState, …
 ├── clients/           # Typed httpx clients (Orchestrator uses these)
 │   ├── base.py
 │   ├── companion.py
 │   ├── participant.py
 │   ├── curriculum.py
-│   └── assessment.py
+│   ├── assessment.py
+│   └── integrity.py
 └── mocks/             # FastAPI apps returning realistic fixed data
     ├── lab_companion.py
     ├── curriculum_designer.py
     ├── participant.py
     ├── assessment.py
+    ├── integrity.py
     └── run_all.py
 ```
 

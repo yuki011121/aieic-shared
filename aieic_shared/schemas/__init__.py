@@ -50,6 +50,20 @@ from aieic_shared.schemas.assessment import (
     AssessmentRequest,
     AssessmentResult,
 )
+from aieic_shared.schemas.integrity import (
+    QuestionClassification,
+    ViolationType,
+    FinalStatus,
+    ReportType,
+    StartSessionRequest,
+    StartSessionResponse,
+    EndSessionRequest,
+    EndSessionResponse,
+    ValidateQuestionRequest,
+    ValidateQuestionResponse,
+    StudentLabSummary,
+    LabAnalyticsResponse,
+)
 from aieic_shared.schemas.orchestrator import (
     StudentMessageRequest,
     StudentMessageResponse,
@@ -111,6 +125,19 @@ __all__ = [
     "ManualReviewRequest",
     "AssessmentRequest",
     "AssessmentResult",
+    # Integrity
+    "QuestionClassification",
+    "ViolationType",
+    "FinalStatus",
+    "ReportType",
+    "StartSessionRequest",
+    "StartSessionResponse",
+    "EndSessionRequest",
+    "EndSessionResponse",
+    "ValidateQuestionRequest",
+    "ValidateQuestionResponse",
+    "StudentLabSummary",
+    "LabAnalyticsResponse",
     # Orchestrator
     "StudentMessageRequest",
     "StudentMessageResponse",
