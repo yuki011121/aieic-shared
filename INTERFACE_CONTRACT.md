@@ -24,7 +24,7 @@ The goal: **enable parallel development**. Anyone can develop their agent agains
    - [Participant Agent](#participant-agent)
    - [Curriculum Designer](#curriculum-designer-agent)
    - [Assessment Agent](#assessment-agent)
-   - [Policy / Integrity Guardian](#policy--integrity-guardian-future)
+   - [Integrity Agent](#integrity-agent)
 5. [Frontend → Orchestrator Mapping (Figma Dashboard)](#frontend--orchestrator-mapping)
 6. [End-to-End Flows](#end-to-end-flows)
 7. [Versioning & Change Process](#versioning--change-process)
@@ -40,27 +40,27 @@ The goal: **enable parallel development**. Anyone can develop their agent agains
                     └─────────────┬───────────────┘
                                   │ HTTPS
                                   ▼
-                    ┌─────────────────────────────┐
-                    │       ORCHESTRATOR          │  ← Single entry point
-                    │   FastAPI · port 8000       │     for the frontend.
-                    │   Owns: routing, state,     │     Coordinates agents.
-                    │          auth, aggregation  │
-                    └─┬──────┬──────┬──────┬──────┘
-              REST    │      │      │      │   REST
-                      ▼      ▼      ▼      ▼
-            ┌──────────┐ ┌─────────┐ ┌──────────┐ ┌────────────┐
-            │   Lab    │ │Particip-│ │Curricu-  │ │ Assessment │
-            │Companion │ │  ant    │ │  lum     │ │   Agent    │
-            │  :8002   │ │  :8001  │ │  :8003   │ │   :8004    │
-            └──────────┘ └─────────┘ └──────────┘ └────────────┘
-                  │           │           │             │
-                  ▼           ▼           ▼             ▼
-            ┌──────────┐ ┌─────────┐ ┌──────────┐ ┌────────────┐
-            │  Azure   │ │ Cosmos  │ │ Cosmos   │ │  Cosmos    │
-            │  Search  │ │   DB    │ │   DB     │ │    DB      │
-            │  (RAG)   │ │interact-│ │curriculum│ │ submissions│
-            │          │ │  ions   │ │          │ │            │
-            └──────────┘ └─────────┘ └──────────┘ └────────────┘
+                    ┌────────────────────────────────────┐
+                    │            ORCHESTRATOR            │  ← Single entry point
+                    │        FastAPI · port 8000         │     for the frontend.
+                    │   Owns: routing, state,            │     Coordinates agents.
+                    │          auth, aggregation         │
+                    └─┬──────┬──────┬──────┬──────┬──────┘
+              REST    │      │      │      │      │   REST
+                      ▼      ▼      ▼      ▼      ▼
+            ┌──────────┐ ┌─────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐
+            │   Lab    │ │Particip-│ │Curricu-  │ │ Assessment │ │ Integrity  │
+            │Companion │ │  ant    │ │  lum     │ │   Agent    │ │   Agent    │
+            │  :8002   │ │  :8001  │ │  :8003   │ │   :8004    │ │   :8005    │
+            └──────────┘ └─────────┘ └──────────┘ └────────────┘ └────────────┘
+                  │           │           │             │               │
+                  ▼           ▼           ▼             ▼               ▼
+            ┌──────────┐ ┌─────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐
+            │  Azure   │ │ Cosmos  │ │ Cosmos   │ │  Cosmos    │ │  Cosmos    │
+            │  Search  │ │   DB    │ │   DB     │ │    DB      │ │    DB      │
+            │  (RAG)   │ │interact-│ │curriculum│ │ submissions│ │ integrity  │
+            │          │ │  ions   │ │          │ │            │ │ sessions   │
+            └──────────┘ └─────────┘ └──────────┘ └────────────┘ └────────────┘
 ```
 
 **Key principle:** The frontend talks **only** to the Orchestrator. Agents talk to each other **only** through the Orchestrator (or, where direct calls are explicitly listed in this doc, through documented direct endpoints).
@@ -82,6 +82,7 @@ The goal: **enable parallel development**. Anyone can develop their agent agains
 | Lab Companion | `http://localhost:8002` |
 | Curriculum Designer | `http://localhost:8003` |
 | Assessment Agent | `http://localhost:8004` |
+| Integrity Agent | `http://localhost:8005` |
 
 ### Required Endpoints (every agent)
 Every agent **MUST** expose:
@@ -196,10 +197,10 @@ See `aieic_shared/` for full type definitions.
 
 ##### `POST /orchestrator/student/message`
 Student sends a message to the Lab Companion. Orchestrator coordinates:
-1. Get/refresh student context from Participant Agent
-2. Forward to Lab Companion with context injected
-3. Log interaction back to Participant Agent (fire-and-forget)
-4. Apply Policy Guardian checks (Phase 2)
+1. Get/refresh student context from Participant Agent (learning behavior profile)
+2. Check with Integrity Agent — if blocked, return refusal immediately
+3. Forward to Lab Companion with context + guidance_level injected
+4. Log interaction back to Participant Agent (fire-and-forget)
 5. Return AI reply
 
 **Request:**
@@ -460,6 +461,8 @@ Triggered when Lab Companion cannot answer; logs an escalation event.
 
 **Role:** Tracks every student interaction. Provides aggregated context so the Lab Companion can personalize responses.
 
+> **Scope boundary:** This agent handles *learning behavior analytics*  — understanding what a student is struggling with and how they learn across sessions. It's different from the **Integrity Agent**. The two agents use separate classification schemes for different purposes: this agent classifies for pedagogical personalization; the Integrity Agent classifies for policy compliance.
+
 #### Endpoints
 
 ##### `POST /participant/log`
@@ -484,7 +487,7 @@ Log a single student interaction. Called by Orchestrator after every student mes
 ```
 
 **Side effects:**
-- Internally classifies the message (question_type, hint_level, difficulty) via Azure OpenAI
+- Classifies the message for **learning analytics** via Azure OpenAI: question_type (debugging / concept / setup), hint_level, difficulty. This is distinct from the Integrity Agent's policy classification, which determines whether a question is permitted and at what guidance level.
 - Persists to Cosmos DB container `interactions` (partition key: `/student_id`)
 
 ##### `GET /participant/context/{student_id}`
@@ -704,15 +707,90 @@ List flagged anomaly reports.
 
 ---
 
-### Policy / Integrity Guardian (Future)
+### Integrity Agent
 
-Out of scope for v0.1. Logic currently lives inside Assessment Agent (`assessment_agent/agents/anomaly_detector.py`).
+**Role:** Real-time academic integrity enforcement. Classifies every student question before the Lab Companion responds, determines the permitted guidance level, and logs violations. Escalates to the instructor when violation thresholds are exceeded.
 
-**Planned role:** Real-time enforcement of usage policies — query throttling, prompt-similarity checks, AI-reliance flags. Today these checks are post-hoc (during grading); the Guardian will move them in-line.
+**Key distinctions from Participant Agent:**
 
-**Will expose (planned):**
-- `POST /guardian/check` — synchronous policy check during student message flow
-- `POST /guardian/flag` — async event reporting
+| | Integrity Agent | Participant Agent |
+|---|---|---|
+| Called | **Synchronously** — blocks response | **Asynchronously** — fire-and-forget after response |
+| Classification purpose | Policy compliance (is this question permitted?) | Learning analytics (what kind of help does the student need?) |
+| Classification taxonomy | conceptual / clarification / procedural / answer_farming / direct_solution_request | debugging / concept / setup |
+| Output used for | Gating Lab Companion response | Personalizing Lab Companion response |
+
+#### Endpoints
+
+##### `POST /integrity/check`
+Synchronous policy gate. Called by the Orchestrator **after** loading student context and **before** forwarding the message to the Lab Companion.
+
+**Request:**
+```json
+{
+  "student_id": "alex_m",
+  "session_id": "uuid",
+  "message": "What is the answer to question 3?"
+}
+```
+
+**Response:**
+```json
+{
+  "blocked": false,
+  "guidance_level": "FULL",
+  "question_type": "conceptual",
+  "violation": false,
+  "warning_message": null
+}
+```
+
+**`guidance_level` values:**
+
+| Value | Meaning |
+|---|---|
+| `FULL` | Unrestricted guidance — normal Lab Companion response |
+| `MODERATE` | Hints only — Lab Companion should not give direct answers |
+| `MINIMAL` | Confirm approach only — no implementation details |
+| `REJECTED` | Blocked — Orchestrator returns refusal, Lab Companion not called |
+
+**Orchestrator behavior on response:**
+- `blocked: true` → skip Lab Companion, return `"You've reached the AI assistance limit for this period."`
+- Otherwise → pass `guidance_level` to Lab Companion via `student_context_summary`
+
+**Violation escalation thresholds (enforced internally by Integrity Agent):**
+- Q13: warning message returned in `warning_message`
+- Q16+: `blocked: true` (hard block)
+- 3+ violations in a session: `escalated: true` in session report
+
+##### `GET /integrity/report/{session_id}`
+Returns the full integrity report for a session. Called by the Orchestrator when populating the instructor dashboard's flagged entries.
+
+**Response:**
+```json
+{
+  "session_id": "uuid",
+  "student_id": "alex_m",
+  "total_questions": 18,
+  "violations": [
+    {
+      "question_number": 13,
+      "question_type": "direct_solution_request",
+      "message": "...",
+      "guidance_level": "REJECTED",
+      "timestamp": "2026-04-30T..."
+    }
+  ],
+  "violation_count": 3,
+  "escalated": true,
+  "final_status": "flagged"
+}
+```
+
+##### Health
+- `GET /health`
+
+> **Note:** Port `:8005` and exact request/response schema must be confirmed with the Integrity Agent owner before integration. The Orchestrator's `policy_check` node is already scaffolded to call this endpoint.
 
 ---
 
@@ -809,16 +887,19 @@ This maps every interaction in the Figma "AIEIC Instructor Panel — Unified Das
    Frontend → POST /orchestrator/student/message
               { student_id, session_id, lab_id, message }
 
-2. Orchestrator (parallel where possible):
+2. Orchestrator — sequential, in order:
    a. GET /participant/context/{student_id}
-      → returns summary, hint_level pattern
-   
-   b. (future) Policy Guardian check
-   
-   c. POST /companion/chat
+      → returns summary, hint_level pattern (learning analytics)
+
+   b. POST /integrity/check
+      { student_id, session_id, message }
+      → returns blocked, guidance_level, question_type
+      → if blocked: skip step c, return refusal to student
+
+   c. POST /companion/chat  (skipped if step b returned blocked: true)
       { student_id, session_id, message,
         conversation_history (from session state),
-        student_context_summary (from step 2a),
+        student_context_summary (from step 2a, with guidance_level from step 2b appended),
         lab_id }
       → returns reply, sources, hint_level
 
@@ -913,7 +994,7 @@ Any agent owner who needs to change a contract:
 | Participant Agent | TBD | 🟢 Implemented | 8001 | Add `/cohort` batch endpoint (v0.2) |
 | Curriculum Designer | TBD | 🟢 Implemented | 8003 | Build after Orchestrator skeleton |
 | Assessment Agent | TBD | 🟢 Implemented | 8004 | No blocking changes |
-| Policy Guardian | TBD | ⚪ Out of scope | — | Phase 2+ |
+| Integrity Agent | TBD (Parastou) | 🟢 Implemented | 8005* | Confirm port + endpoint schema with owner; wire into Orchestrator `policy_check` node |
 | Frontend (React) | TBD | 🟡 Figma only | — | Wire to `/orchestrator/*` once skeleton up |
 
 ### Immediate Blockers
