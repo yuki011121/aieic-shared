@@ -542,6 +542,8 @@ Generate a new lab from teaching objectives.
 ```
 
 **Response:**
+`quiz[].type` must be one of: `short_answer`, `multiple_choice`, `code`, `diagram`, or `essay`.
+
 ```json
 {
   "lab_id": "lab4",
@@ -1072,4 +1074,3 @@ from aieic_shared.mocks import (
 ```
 
 This lets the Orchestrator be developed end-to-end without waiting for real implementations.
-

@@ -28,6 +28,7 @@ class QuizQuestionType(str, Enum):
     MULTIPLE_CHOICE = "multiple_choice"
     CODE = "code"
     DIAGRAM = "diagram"
+    ESSAY = "essay"
 
 
 class QuizQuestion(BaseModel):
